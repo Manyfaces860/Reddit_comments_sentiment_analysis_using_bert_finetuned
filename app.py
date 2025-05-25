@@ -35,13 +35,6 @@ if submit and subreddit_name:
 # App title and description
 st.title("Reddit Sentiment Analysis Dashboard")
 
-st.markdown(f"""
-### Analyzing: [{post_info['title']}](https://reddit.com/r/{post_info['subreddit']}/comments/{post_info['id']})
-**Subreddit:** r/{post_info['subreddit']} | **Author:** u/{post_info['author']} | **Score:** {post_info['score']} | **Comments:** {post_info['num_comments']}
-
-This dashboard analyzes sentiment and patterns in Reddit comments. Use the sidebar to adjust filters and explore different aspects of the discussion.
-""")
-
 # Sidebar filters
 st.sidebar.header("Filters")
 
@@ -248,12 +241,6 @@ if show_summary:
     st.write("### Data Sample")
     st.dataframe(data_filtered[['author', 'text', 'sentiment', 'upvotes', 'topic']].head(10))
 
-# Upload your own data
-st.sidebar.header("Upload Your Own Data")
-uploaded_file = st.sidebar.file_uploader("Upload Reddit JSON data", type=["json", "txt"])
-if uploaded_file is not None:
-    # Note: In a real app, you'd parse the uploaded file
-    st.sidebar.success("File uploaded successfully! (Processing not implemented in this demo)")
 
 # Footer
 st.markdown("""
