@@ -4,11 +4,11 @@ import pprint, json
 
 def get_data(limit : int = 1, subreddit_name="IndiaCricket"):
     reddit = praw.Reddit(
-        client_id="86vWzAuA4SzcelcbjWT2Eg",
-        client_secret="Pssw9U43Yg-OXixw_tbn2adVkRGiqw",
-        password="bu9xiZqNa2vNX56",
-        user_agent="python:myredditbot:v1.0 (by u/Popular-Break-6990)",
-        username="Popular-Break-6990",
+        client_id="",
+        client_secret="",
+        password="",
+        user_agent="",
+        username="",
     )
 
     reddit.read_only = True
