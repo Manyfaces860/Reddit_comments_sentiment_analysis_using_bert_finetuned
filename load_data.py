@@ -13,7 +13,6 @@ import json
 from datetime import datetime, timedelta
 from model import make_pred
 from model import YayOrNay
-# from model import make_pred, YayOrNay, Custom, evaluate_model
 
 # First ensure necessary NLTK resources are downloaded
 try:
@@ -44,245 +43,6 @@ def clean_text(text):
     text = re.sub(r'\d+', '', text)
     
     return text.lower().strip()
-
-def extract_topics(df, post_data, num_topics=5):
-    """
-    Extract topics from Reddit post and comments using TF-IDF and NLP techniques
-    Works for any text category, not just cricket
-    
-    Args:
-        df: DataFrame containing comments
-        post_data: Dictionary with post information
-        num_topics: Number of topics to extract
-    
-    Returns:
-        Updated DataFrame with dynamically extracted topics
-    """
-    # Initialize lemmatizer
-    lemmatizer = WordNetLemmatizer()
-    
-    # Get subreddit to help with context
-    subreddit = post_data.get('subreddit', '').lower()
-    
-    # Combine post title, selftext, and comments for processing
-    all_text = post_data['title'] + ' ' + post_data['selftext'] + ' '
-    all_text += ' '.join(df['text'].tolist())
-    
-    # Clean the text
-    cleaned_text = clean_text(all_text)
-    
-    # Tokenize
-    tokens = word_tokenize(cleaned_text)
-    
-    # Get stop words
-    stop_words = set(stopwords.words('english'))
-    
-    # Add general stopwords that don't contribute to topics
-    general_stopwords = [
-        'just', 'like', 'get', 'got', 'really', 'even', 'still', 'back',
-        'make', 'see', 'think', 'going', 'didnt', 'doesnt', 'dont', 'cant',
-        'day', 'guys', 'man', 'time', 'yeah', 'say', 'said', 'would', 'could',
-        'should', 'way', 'thing', 'know', 'also', 'much', 'many', 'well', 'actually',
-        'basically', 'look', 'looks', 'looking', 'lot', 'gonna', 'wanna', 'need',
-        'maybe', 'sure', 'right', 'want', 'people', 'person', 'ever', 'one', 'two',
-        'three', 'first', 'second', 'new', 'old', 'yes', 'no', 'good', 'bad'
-    ]
-    
-    stop_words.update(general_stopwords)
-    
-    # Remove stopwords and lemmatize
-    filtered_tokens = [lemmatizer.lemmatize(token) for token in tokens if token not in stop_words and len(token) > 2]
-    
-    # Get most common words - simple topic extraction method
-    word_counts = Counter(filtered_tokens)
-    common_words = [word for word, count in word_counts.most_common(num_topics*3) if count > 1]
-    
-    # Find significant bigrams (word pairs that occur together)
-    bigram_measures = BigramAssocMeasures()
-    finder = BigramCollocationFinder.from_words(filtered_tokens)
-    finder.apply_freq_filter(2)  # Only consider bigrams that appear at least twice
-    significant_bigrams = finder.nbest(bigram_measures.pmi, 10)
-    bigram_topics = [f"{w1} {w2}" for w1, w2 in significant_bigrams]
-    
-    # Process individual comments for vectorization
-    comment_texts = [clean_text(text) for text in df['text']]
-    
-    # Combine with post title and selftext
-    all_documents = [post_data['title'] + " " + post_data['selftext']] + comment_texts
-    
-    # Use TF-IDF to get more sophisticated topics
-    tfidf_topics = []
-    if len(" ".join(all_documents).split()) > 20:
-        try:
-            # TF-IDF vectorization
-            vectorizer = TfidfVectorizer(
-                max_features=100,
-                stop_words=list(stop_words),
-                ngram_range=(1, 2)  # Include both single words and bigrams
-            )
-            
-            tfidf_matrix = vectorizer.fit_transform(all_documents)
-            feature_names = vectorizer.get_feature_names_out()
-            
-            # Get highest TF-IDF scores by summing across all documents
-            tfidf_sums = tfidf_matrix.sum(axis=0).A1
-            top_indices = tfidf_sums.argsort()[-num_topics*2:][::-1]
-            tfidf_topics = [feature_names[i] for i in top_indices]
-            
-            # Try LDA for topic modeling when we have enough data
-            if len(all_documents) > 5:
-                lda = LatentDirichletAllocation(
-                    n_components=min(3, len(all_documents)-1),
-                    random_state=42
-                )
-                lda.fit(tfidf_matrix)
-                
-                # Get top words for each topic
-                lda_topics = []
-                for topic_idx, topic in enumerate(lda.components_):
-                    top_word_indices = topic.argsort()[:-5:-1]  # Get 5 most important words
-                    topic_words = [feature_names[i] for i in top_word_indices]
-                    lda_topics.append(" ".join(topic_words))
-                    
-                tfidf_topics.extend(lda_topics)
-        except Exception as e:
-            print(f"TF-IDF processing error: {e}")
-            # Fallback to simple word counting
-            tfidf_topics = common_words
-    else:
-        tfidf_topics = common_words
-    
-    # Get context from subreddit and title
-    title_words = clean_text(post_data['title']).split()
-    title_cleaned = [lemmatizer.lemmatize(word) for word in title_words if word not in stop_words and len(word) > 2]
-    
-    # Extract entity/subject from title (usually the first few nouns)
-    subject_candidates = title_cleaned[:3]
-    
-    # Create contextual topics based on subreddit and title
-    contextual_topics = []
-    
-    # Add subreddit as a context if it's not too generic
-    if subreddit and subreddit not in ['all', 'popular', 'news', 'askreddit']:
-        # Convert subreddit name to a readable format
-        readable_subreddit = ' '.join(word.capitalize() for word in re.findall(r'[A-Za-z]+', subreddit))
-        if readable_subreddit:
-            contextual_topics.append(readable_subreddit)
-    
-    # Look for specific patterns in the title that indicate topics
-    title_lower = post_data['title'].lower()
-    
-    # Question patterns
-    if title_lower.startswith(('what', 'why', 'how', 'when', 'who', 'is', 'are', 'can', 'should', 'do')) or '?' in title_lower:
-        contextual_topics.append('Question')
-        
-        # Specific question types
-        if any(word in title_lower for word in ['opinion', 'think', 'believe', 'thoughts']):
-            contextual_topics.append('Opinion Poll')
-    
-    # Announcement patterns
-    if any(word in title_lower for word in ['announcement', 'update', 'news', 'breaking']):
-        contextual_topics.append('Announcement')
-    
-    # Discussion patterns
-    if any(word in title_lower for word in ['discussion', 'thread', 'debate', 'talk']):
-        contextual_topics.append('Discussion')
-        
-    # Humor patterns
-    if any(word in title_lower for word in ['meme', 'joke', 'funny', 'humor', 'lol', 'haha']):
-        contextual_topics.append('Humor')
-        
-    # Help/Advice patterns
-    if any(word in title_lower for word in ['help', 'advice', 'need', 'assist', 'suggestion']):
-        contextual_topics.append('Advice')
-    
-    # Media patterns
-    if any(word in title_lower for word in ['pic', 'picture', 'photo', 'image', 'video', 'clip']):
-        contextual_topics.append('Media')
-        
-    # Combine all topic sources
-    all_potential_topics = list(set(contextual_topics + bigram_topics + tfidf_topics + common_words))
-    
-    # Format topics
-    cleaned_topics = []
-    for topic in all_potential_topics:
-        # Convert to title case and remove non-alphanumerics
-        clean_topic = ' '.join(word.capitalize() for word in re.sub(r'[^\w\s]', '', topic).split())
-        if clean_topic and len(clean_topic) > 2:
-            cleaned_topics.append(clean_topic)
-    
-    # Sort by likelihood of being a topic (contextual > bigrams > tfidf > common words)
-    ranked_topics = []
-    for topic in contextual_topics:
-        if topic in cleaned_topics:
-            ranked_topics.append(topic)
-            cleaned_topics.remove(topic)
-            
-    for topic in bigram_topics:
-        clean_topic = ' '.join(word.capitalize() for word in re.sub(r'[^\w\s]', '', topic).split())
-        if clean_topic in cleaned_topics:
-            ranked_topics.append(clean_topic)
-            cleaned_topics.remove(clean_topic)
-    
-    # Add remaining topics
-    ranked_topics.extend(cleaned_topics)
-    
-    # Select top topics
-    final_topics = ranked_topics[:num_topics]
-    
-    # If no topics found, use generic defaults
-    if not final_topics:
-        final_topics = ['Discussion', 'General', 'Question', 'Opinion', 'Information']
-    
-    # Assign topics to each comment based on content similarity
-    df['topic'] = assign_topics_to_comments(df, final_topics)
-    
-    return df, final_topics
-
-def assign_topics_to_comments(df, topics, fallback=True):
-    """
-    Assign topics to comments based on content similarity
-    
-    Args:
-        df: DataFrame with comments
-        topics: List of extracted topics
-        fallback: Whether to use random assignment as fallback
-        
-    Returns:
-        Series with topic assignments
-    """
-    # Initialize list to hold assigned topics
-    assigned_topics = []
-    
-    # For each comment, find most relevant topic
-    for _, row in df.iterrows():
-        comment_text = clean_text(row['text'])
-        
-        # Skip assignment for very short or empty comments
-        if len(comment_text.split()) < 3:
-            assigned_topics.append(np.random.choice(topics))
-            continue
-        
-        # Score each topic by word overlap
-        topic_scores = {}
-        for topic in topics:
-            # Convert topic to lowercase for comparison
-            topic_words = set(topic.lower().split())
-            # Calculate overlap
-            overlap = sum(1 for word in comment_text.split() if word in topic_words)
-            topic_scores[topic] = overlap
-        
-        # Find topic with highest score
-        max_score = max(topic_scores.values())
-        best_topics = [t for t, score in topic_scores.items() if score == max_score]
-        
-        # If no clear match, use random assignment
-        if max_score == 0 or (len(best_topics) == len(topics) and fallback):
-            assigned_topics.append(np.random.choice(topics))
-        else:
-            assigned_topics.append(np.random.choice(best_topics))
-    
-    return assigned_topics
 
 def load_data(file_path=None, topic_extraction=True):
     """Enhanced load_data function with dynamic topic extraction"""
@@ -321,16 +81,7 @@ def load_data(file_path=None, topic_extraction=True):
         author = f"user_{i}" if i > 0 else "AutoModerator"
         
         # Perform sentiment analysis on the comment
-        # sentiment_score = analyzer.polarity_scores(comment)['compound']
         sentiment_score = make_pred(comment)
-        
-        # if sentiment_score >= 0.05:
-        #     sentiment = 'Positive'
-        # elif sentiment_score <= -0.05:
-        #     sentiment = 'Negative'
-        # else:
-        #     sentiment = 'Neutral'
-        # sentiment_score = make_pred(comment)
         
         # Determine sentiment category based on compound score
         if sentiment_score == 0:
@@ -419,15 +170,7 @@ def process_json_data(file_path):
     
     for i, comment in enumerate(data['comments']):
         author = f"user_{i}" if i > 0 else "AutoModerator"
-        # sentiment_score = model.polarity_scores(comment)['compound']
         sentiment_score = make_pred(comment)
-
-        # if sentiment_score >= 0.05:
-        #     sentiment = 'Positive'
-        # elif sentiment_score <= -0.05:
-        #     sentiment = 'Negative'
-        # else:
-        #     sentiment = 'Neutral'
 
         if sentiment_score == 0:
             sentiment = 'Negative'   # sadness
