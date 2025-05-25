@@ -260,14 +260,3 @@ st.markdown("""
 ---
 <p style="text-align:center">Reddit Sentiment Analysis Dashboard | Created with Streamlit</p>
 """, unsafe_allow_html=True)
-
-# Add requirements for this app
-# requirements.txt would need:
-# streamlit
-# pandas
-# numpy
-# matplotlib
-# seaborn
-# plotly
-# wordcloud
-# vaderSentiment
